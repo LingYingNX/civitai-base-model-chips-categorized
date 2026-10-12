@@ -6,7 +6,7 @@
 
 ## 来源
 
-基于 [lericogit/civitai-base-model-chips](https://github.com/lericogit/civitai-base-model-chips)（v1.6.0，MIT）修改。胶囊替换下拉框、隐藏下拉框保留、`Copy model list`、黑白名单过滤等原有能力全部来自上游，版权归 **lericogit** 所有。本分支新增分类分组与组内排序。
+基于 [lericogit/civitai-base-model-chips](https://github.com/lericogit/civitai-base-model-chips)（v1.6.0，MIT）修改。胶囊替换下拉框、隐藏下拉框保留、黑白名单过滤等原有能力全部来自上游，版权归 **lericogit** 所有。本分支新增分类分组与组内排序，并移除了上游的 `Copy model list` 按钮。
 
 ## 功能
 
@@ -14,7 +14,7 @@
 - 组内左新右旧：`SD 3.5` 在 `SDXL 1.0` 左边，`Flux.3` 在 `Flux.2 D` 左边
 - 每个分类可「全选 / 清空」，只写入筛选状态，实际筛选仍走站点的「应用筛选」
 - 分类靠正则规则，Civitai 出新模型会自动归类
-- 保留上游全部功能
+- 保留上游的胶囊渲染、黑白名单过滤等能力；上游的 `Copy model list` 按钮已移除
 
 ## 安装
 

@@ -2,7 +2,7 @@
 // @name         Civitai Base Model Chips (Categorized)
 // @name:zh-CN   Civitai 基础模型胶囊筛选（分类版）
 // @namespace    https://github.com/LingYingNX/
-// @version      2.0.0
+// @version      2.0.1
 // @author       LingYingNX (original by lericogit)
 // @description  Replaces the Civitai Base model dropdown with collapsible, time-ordered category groups of chip filters.
 // @description:zh-CN  把 Civitai 的基础模型下拉框改成分组折叠的胶囊筛选：按卡通/写实/视频等分类收起，组内新模型在左，支持按分类一键全选。
@@ -31,11 +31,7 @@
   const CATEGORY_BODY_ATTR = 'data-tm-base-model-category-body';
   const CATEGORY_ACTION_ATTR = 'data-tm-base-model-category-action';
   const TOOLBAR_ATTR = 'data-tm-base-model-toolbar';
-  const DIVIDER_ACTIONS_ATTR = 'data-tm-base-model-divider-actions';
-  const COPY_BUTTON_ATTR = 'data-tm-base-model-copy-button';
-  const COPY_BUTTON_LABEL_ATTR = 'data-tm-base-model-copy-button-label';
-  const COPY_BUTTON_ICON_ATTR = 'data-tm-base-model-copy-button-icon';
-  const SIGNATURE_ATTR = 'data-tm-base-model-signature';
+  const OPTIONS_ATTR = 'data-tm-base-model-options';
   const MODELS_PATH_PATTERN = /^\/models(?:\/|$)/i;
   const FILTER_MODES = {
     OFF: 'off',
@@ -325,12 +321,6 @@
     return normalizeText(text).toLowerCase();
   }
 
-  function escapeJsString(value) {
-    return String(value)
-      .replace(/\\/g, '\\\\')
-      .replace(/'/g, "\\'");
-  }
-
   function buildCategoryIndex() {
     const index = new Map();
 
@@ -452,7 +442,9 @@
       [${CATEGORY_HEADER_ATTR}="true"] {
         display: flex;
         align-items: center;
+        flex-wrap: nowrap;
         gap: calc(0.375rem * var(--mantine-scale, 1));
+        min-width: 0;
         padding: calc(0.3rem * var(--mantine-scale, 1)) calc(0.55rem * var(--mantine-scale, 1));
         cursor: pointer;
         user-select: none;
@@ -481,11 +473,13 @@
 
       [${CATEGORY_ATTR}="true"] .tm-cat-title {
         font-weight: 600;
+        white-space: nowrap;
       }
 
       [${CATEGORY_ATTR}="true"] .tm-cat-count {
         color: var(--mantine-color-dimmed, rgba(127, 127, 127, 0.95));
         font-size: var(--mantine-font-size-xs, 0.75rem);
+        white-space: nowrap;
       }
 
       [${CATEGORY_ATTR}="true"] .tm-cat-badge {
@@ -494,7 +488,14 @@
         color: var(--mantine-color-blue-6, #1c7ed6);
         font-size: var(--mantine-font-size-xs, 0.75rem);
         line-height: 1.4;
+        min-width: calc(3.2rem * var(--mantine-scale, 1));
         padding: 0 calc(0.35rem * var(--mantine-scale, 1));
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      [${CATEGORY_ATTR}="true"] .tm-cat-badge[data-empty="true"] {
+        visibility: hidden;
       }
 
       [${CATEGORY_ATTR}="true"] .tm-cat-actions {
@@ -539,6 +540,17 @@
         transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
       }
 
+      /*
+       * The check icon keeps its box whether or not the chip is selected. Hiding
+       * it outright would widen every chip on click, re-flow the whole chip row
+       * and make the sidebar jump.
+       */
+      [${CHIP_ATTR}="true"] label.mantine-Chip-label .mantine-Chip-iconWrapper {
+        display: inline-flex !important;
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+
       [${CHIP_ATTR}="true"] input:checked + label.mantine-Chip-label,
       [${CHIP_ATTR}="true"] label.mantine-Chip-label[data-checked="true"] {
         background-color: var(--mantine-color-blue-6, #1c7ed6) !important;
@@ -548,71 +560,9 @@
 
       [${CHIP_ATTR}="true"] input:checked + label.mantine-Chip-label .mantine-Chip-iconWrapper,
       [${CHIP_ATTR}="true"] label.mantine-Chip-label[data-checked="true"] .mantine-Chip-iconWrapper {
-        display: inline-flex !important;
         opacity: 1 !important;
       }
 
-      [${DIVIDER_ACTIONS_ATTR}="true"] {
-        position: relative;
-        padding-right: var(--tm-base-model-copy-button-space, calc(8rem * var(--mantine-scale, 1)));
-      }
-
-      [${COPY_BUTTON_ATTR}="true"] {
-        appearance: none;
-        background: var(--mantine-color-body, rgba(255, 255, 255, 0.95));
-        border: calc(0.0625rem * var(--mantine-scale, 1)) solid var(--mantine-color-default-border, rgba(0, 0, 0, 0.18));
-        border-radius: 999px;
-        color: var(--mantine-color-dimmed, inherit);
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        gap: calc(0.25rem * var(--mantine-scale, 1));
-        font: inherit;
-        font-size: var(--mantine-font-size-xs, 0.75rem);
-        line-height: 1.2;
-        padding: calc(0.2rem * var(--mantine-scale, 1)) calc(0.5rem * var(--mantine-scale, 1));
-        position: absolute;
-        right: 0;
-        top: 50%;
-        transform: translateY(-50%);
-        z-index: 1;
-        transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-      }
-
-      [${COPY_BUTTON_ICON_ATTR}="true"] {
-        display: none;
-        flex: 0 0 auto;
-        width: 0.85rem;
-        height: 0.85rem;
-      }
-
-      [${COPY_BUTTON_ATTR}="true"][data-warning="true"] {
-        background: rgba(255, 212, 59, 0.14);
-        border-color: #f59f00;
-        color: #8f5b00;
-      }
-
-      [${COPY_BUTTON_ATTR}="true"][data-warning="true"] [${COPY_BUTTON_ICON_ATTR}="true"] {
-        display: inline-flex;
-      }
-
-      [${COPY_BUTTON_ATTR}="true"]:hover {
-        background: var(--mantine-color-default-hover, rgba(0, 0, 0, 0.05));
-      }
-
-      [${COPY_BUTTON_ATTR}="true"][data-warning="true"]:hover {
-        background: rgba(255, 212, 59, 0.22);
-      }
-
-      [${COPY_BUTTON_ATTR}="true"][data-state="copied"] {
-        color: var(--mantine-color-green-7, #2b8a3e);
-        border-color: var(--mantine-color-green-6, #40c057);
-      }
-
-      [${COPY_BUTTON_ATTR}="true"][data-state="error"] {
-        color: var(--mantine-color-red-7, #c92a2a);
-        border-color: var(--mantine-color-red-6, #fa5252);
-      }
     `;
 
     document.head.appendChild(style);
@@ -629,249 +579,6 @@
     element.style.setProperty('visibility', 'hidden', 'important');
     element.style.setProperty('opacity', '0', 'important');
     element.style.setProperty('pointer-events', 'none', 'important');
-  }
-
-  async function copyTextToClipboard(text) {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'fixed';
-    textarea.style.top = '-9999px';
-    textarea.style.left = '-9999px';
-    document.body.appendChild(textarea);
-    textarea.select();
-
-    let copied = false;
-
-    try {
-      copied = document.execCommand('copy');
-    } finally {
-      textarea.remove();
-    }
-
-    if (!copied) {
-      throw new Error('Clipboard copy failed');
-    }
-  }
-
-  function setCopyButtonLabel(button, label) {
-    const labelNode = button?.querySelector(`[${COPY_BUTTON_LABEL_ATTR}="true"]`);
-    if (labelNode) {
-      labelNode.textContent = label;
-      return;
-    }
-
-    if (button) {
-      button.textContent = label;
-    }
-  }
-
-  function syncCopyButtonLayout(button) {
-    const divider = button?.closest('.mantine-Divider-root');
-    if (!button || !divider) {
-      return;
-    }
-
-    window.requestAnimationFrame(() => {
-      if (!button.isConnected || !divider.isConnected) {
-        return;
-      }
-
-      const spacing = Math.ceil(button.getBoundingClientRect().width + 12);
-      divider.style.setProperty('--tm-base-model-copy-button-space', `${spacing}px`);
-    });
-  }
-
-  function setCopyButtonState(button, state, label) {
-    if (!button) {
-      return;
-    }
-
-    if (button._tmCopyResetTimer) {
-      window.clearTimeout(button._tmCopyResetTimer);
-    }
-
-    button.dataset.state = state;
-    setCopyButtonLabel(button, label);
-    syncCopyButtonLayout(button);
-
-    if (state === 'idle') {
-      return;
-    }
-
-    button._tmCopyResetTimer = window.setTimeout(() => {
-      button.dataset.state = 'idle';
-      setCopyButtonLabel(button, 'Copy model list');
-      syncCopyButtonLayout(button);
-    }, 1800);
-  }
-
-  function compareHardcodedAndLiveModels(liveOptions) {
-    const liveModels = new Map();
-    const hardcodedModels = new Map();
-
-    for (const option of liveOptions) {
-      const key = normalizeKey(option.value);
-      if (key && !liveModels.has(key)) {
-        liveModels.set(key, option.value);
-      }
-    }
-
-    for (const value of ALL_BASE_MODELS) {
-      const normalized = normalizeText(value);
-      const key = normalizeKey(normalized);
-      if (key && !hardcodedModels.has(key)) {
-        hardcodedModels.set(key, normalized);
-      }
-    }
-
-    const liveOnly = [];
-    const hardcodedOnly = [];
-
-    for (const [key, value] of liveModels.entries()) {
-      if (!hardcodedModels.has(key)) {
-        liveOnly.push(value);
-      }
-    }
-
-    for (const [key, value] of hardcodedModels.entries()) {
-      if (!liveModels.has(key)) {
-        hardcodedOnly.push(value);
-      }
-    }
-
-    return { liveOnly, hardcodedOnly };
-  }
-
-  function buildLiveListUnavailableMessage() {
-    return 'Could not read Civitai\'s live Base model list right now. The script is temporarily using ALL_BASE_MODELS as a fallback for the chips. Refresh the page or reopen the filter if something looks off.';
-  }
-
-  function buildHardcodedListDiffMessage(diff) {
-    const parts = [
-      'ALL_BASE_MODELS is out of sync with Civitai\'s live Base model list.',
-      'The chips are already using the live list, so filtering still works.',
-      'You should probably refresh the hardcoded list so your fallback and manual config reference stay current.',
-    ];
-
-    if (diff.liveOnly.length) {
-      parts.push(`New on Civitai: ${diff.liveOnly.join(', ')}.`);
-    }
-
-    if (diff.hardcodedOnly.length) {
-      parts.push(`Only in ALL_BASE_MODELS: ${diff.hardcodedOnly.join(', ')}.`);
-    }
-
-    return parts.join(' ');
-  }
-
-  function getCopyButtonWarningMessage(liveOptions) {
-    if (!liveOptions.length) {
-      return buildLiveListUnavailableMessage();
-    }
-
-    const diff = compareHardcodedAndLiveModels(liveOptions);
-    if (!diff.liveOnly.length && !diff.hardcodedOnly.length) {
-      return '';
-    }
-
-    return buildHardcodedListDiffMessage(diff);
-  }
-
-  function updateCopyButtonWarning(button, liveOptions) {
-    if (!button) {
-      return;
-    }
-
-    const message = getCopyButtonWarningMessage(liveOptions);
-    const hasWarning = Boolean(message);
-
-    if (!hasWarning) {
-      button.dataset.warning = 'false';
-      button.title = 'Copy the current Base model list as const ALL_BASE_MODELS = [...]';
-      button.setAttribute('aria-label', 'Copy model list');
-      syncCopyButtonLayout(button);
-      return;
-    }
-
-    button.dataset.warning = 'true';
-    button.title = message;
-    button.setAttribute('aria-label', `Copy model list. Warning: ${message}`);
-    syncCopyButtonLayout(button);
-  }
-
-  function formatAllBaseModelsConstant(options) {
-    const lines = options.map((option) => `  '${escapeJsString(option.value)}',`);
-    return ['const ALL_BASE_MODELS = [', ...lines, '];'].join('\n');
-  }
-
-  async function handleCopyModelList(section, button) {
-    try {
-      const liveOptions = getLiveOptions(section);
-      const options = liveOptions.length ? liveOptions : getOptions(section);
-      if (!options.length) {
-        setCopyButtonState(button, 'error', 'No models');
-        return;
-      }
-
-      await copyTextToClipboard(formatAllBaseModelsConstant(options));
-      setCopyButtonState(button, 'copied', 'Copied');
-    } catch (error) {
-      console.error(`${SCRIPT_KEY}: failed to copy base model list`, error);
-      setCopyButtonState(button, 'error', 'Copy failed');
-    }
-  }
-
-  function ensureCopyButton(section) {
-    const divider = section.querySelector('.mantine-Divider-root');
-    if (!divider) {
-      return null;
-    }
-
-    divider.setAttribute(DIVIDER_ACTIONS_ATTR, 'true');
-
-    let button = divider.querySelector(`[${COPY_BUTTON_ATTR}="true"]`);
-    if (button) {
-      return button;
-    }
-
-    button = document.createElement('button');
-    button.type = 'button';
-    button.setAttribute(COPY_BUTTON_ATTR, 'true');
-    button.dataset.state = 'idle';
-    button.dataset.warning = 'false';
-    button.title = 'Copy the current Base model list as const ALL_BASE_MODELS = [...]';
-    button.setAttribute('aria-label', 'Copy model list');
-
-    const icon = document.createElement('span');
-    icon.setAttribute(COPY_BUTTON_ICON_ATTR, 'true');
-    icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = `
-      <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14">
-        <path d="M10 2.5L18 17H2L10 2.5Z" fill="currentColor" fill-opacity="0.16" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"></path>
-        <path d="M10 7V11.2" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path>
-        <circle cx="10" cy="14.2" r="1" fill="currentColor"></circle>
-      </svg>
-    `;
-
-    const label = document.createElement('span');
-    label.setAttribute(COPY_BUTTON_LABEL_ATTR, 'true');
-    label.textContent = 'Copy model list';
-
-    button.append(icon, label);
-    button.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      handleCopyModelList(section, button);
-    });
-
-    divider.appendChild(button);
-    return button;
   }
 
   function scheduleSync() {
@@ -1519,12 +1226,14 @@
     const selectedCount = values
       .filter((value) => selectedKeys.has(normalizeKey(value))).length;
 
-    if (selectedCount) {
-      const badge = document.createElement('span');
-      badge.className = 'tm-cat-badge';
-      badge.textContent = `已选 ${selectedCount}`;
-      header.appendChild(badge);
-    }
+    /*
+     * The badge is always present and only toggles visibility, so the header
+     * keeps its exact height and the sidebar never jumps when the count changes.
+     */
+    const badge = document.createElement('span');
+    badge.className = 'tm-cat-badge';
+    setCategoryBadge(badge, selectedCount);
+    header.appendChild(badge);
 
     const actions = document.createElement('span');
     actions.className = 'tm-cat-actions';
@@ -1577,11 +1286,75 @@
     wrapper.replaceChildren(fragment);
   }
 
-  function signatureFor(options, selectedKeys) {
-    return JSON.stringify({
-      options: options.map((option) => `${option.value}:${option.label}`),
-      selected: [...selectedKeys].sort(),
-    });
+  function setCategoryBadge(badge, selectedCount) {
+    if (!badge) {
+      return;
+    }
+
+    const text = `已选 ${selectedCount}`;
+
+    if (badge.textContent === text) {
+      return;
+    }
+
+    badge.textContent = text;
+    badge.dataset.empty = String(selectedCount === 0);
+  }
+
+  function optionsKeyFor(options) {
+    return options.map((option) => `${option.value}\u0001${option.label}`).join('\u0002');
+  }
+
+  function updateCategoryBadges(wrapper, selectedKeys) {
+    const groups = wrapper.querySelectorAll(`[${CATEGORY_ATTR}="true"]`);
+
+    for (const group of groups) {
+      const chips = group.querySelectorAll(`[${CATEGORY_BODY_ATTR}="true"] > [${CHIP_ATTR}="true"]`);
+      let selectedCount = 0;
+
+      for (const chip of chips) {
+        const input = chip.querySelector('input');
+
+        if (input && selectedKeys.has(normalizeKey(input.value))) {
+          selectedCount += 1;
+        }
+      }
+
+      setCategoryBadge(group.querySelector('.tm-cat-badge'), selectedCount);
+    }
+  }
+
+  /*
+   * Selection-only refresh: flip the affected chips and badges without
+   * rebuilding the panel, so the sidebar keeps its scroll position, its
+   * open/closed groups and its layout.
+   */
+  function updateSelectionState(wrapper, selectedKeys) {
+    const chips = wrapper.querySelectorAll(`[${CATEGORY_BODY_ATTR}="true"] > [${CHIP_ATTR}="true"]`);
+
+    for (const chip of chips) {
+      const input = chip.querySelector('input');
+
+      if (!input) {
+        continue;
+      }
+
+      const selected = selectedKeys.has(normalizeKey(input.value));
+
+      if (Boolean(input.checked) !== selected) {
+        applyChipState(chip, selected);
+      }
+    }
+
+    const clearChip = wrapper.querySelector(`[${TOOLBAR_ATTR}] > [${CHIP_ATTR}="true"]`);
+    const clearSelected = selectedKeys.size === 0;
+    const clearInput = clearChip ? clearChip.querySelector('input') : null;
+
+    if (clearInput && clearInput.checked !== clearSelected) {
+      applyChipState(clearChip, clearSelected);
+    }
+
+    updateCategoryBadges(wrapper, selectedKeys);
   }
 
   function syncSection(section) {
@@ -1602,22 +1375,20 @@
     const domSelectedValues = getSelectedValues(section);
     const selectedKeys = resolveSelectedKeys(section, domSelectedValues);
     const visibleOptions = sortOptionsByCategory(getVisibleChipOptions(options, selectedKeys));
-    const copyButton = ensureCopyButton(section);
-    updateCopyButtonWarning(copyButton, liveOptions);
     const wrapper = getOrCreateWrapper(section);
-    const signature = signatureFor(visibleOptions, selectedKeys);
+    const optionsKey = optionsKeyFor(visibleOptions);
 
-    if (wrapper.getAttribute(SIGNATURE_ATTR) === signature) {
+    if (wrapper.getAttribute(OPTIONS_ATTR) === optionsKey && wrapper.hasChildNodes()) {
+      updateSelectionState(wrapper, selectedKeys);
       return;
     }
-
-    wrapper.setAttribute(SIGNATURE_ATTR, signature);
 
     const templates = getChipTemplates();
     if (!templates.unchecked) {
       return;
     }
 
+    wrapper.setAttribute(OPTIONS_ATTR, optionsKey);
     renderWrapper(section, wrapper, templates, visibleOptions, selectedKeys);
   }
 
