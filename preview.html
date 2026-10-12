@@ -84,6 +84,7 @@
   .cat-header {
     display: flex;
     align-items: center;
+    flex-wrap: nowrap;
     gap: 6px;
     padding: 5px 9px;
     background: var(--group-header);
@@ -95,6 +96,7 @@
   .cat-header:hover { background: var(--group-header-hover); }
 
   .cat-arrow {
+    flex: 0 0 auto;
     width: 0;
     height: 0;
     border-top: 4px solid transparent;
@@ -105,8 +107,8 @@
 
   .cat-group[data-open="true"] .cat-arrow { transform: rotate(90deg); }
 
-  .cat-title { font-weight: 600; }
-  .cat-count { color: var(--text-muted); font-size: 11.5px; }
+  .cat-title { font-weight: 600; white-space: nowrap; }
+  .cat-count { color: var(--text-muted); font-size: 11.5px; white-space: nowrap; }
 
   .cat-badge {
     border: 1px solid currentColor;
@@ -114,8 +116,13 @@
     color: #60a5fa;
     font-size: 11px;
     line-height: 1.4;
+    min-width: 3.2rem;
     padding: 0 6px;
+    text-align: center;
+    white-space: nowrap;
   }
+
+  .cat-badge[hidden] { display: inline-block; visibility: hidden; }
 
   .cat-actions { display: inline-flex; gap: 4px; margin-left: auto; }
 
@@ -146,6 +153,7 @@
   .chip {
     display: inline-flex;
     align-items: center;
+    flex: 0 0 auto;
     gap: 4px;
     background: var(--chip-bg);
     border: 1px solid var(--chip-border);
@@ -159,6 +167,14 @@
     transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
   }
 
+  /* 勾号始终占位，选中与否都不改变 chip 宽度，行数才不会跳 */
+  .chip::before {
+    content: "✓";
+    flex: 0 0 auto;
+    font-size: 10px;
+    visibility: hidden;
+  }
+
   .chip:hover { background: var(--chip-hover); color: #fff; border-color: #4b5563; }
 
   .chip.active {
@@ -167,7 +183,7 @@
     color: var(--chip-active-text);
   }
 
-  .chip.active::before { content: "✓"; font-size: 10px; }
+  .chip.active::before { visibility: visible; }
 
   .chip.clear { font-weight: 600; }
 
@@ -191,7 +207,7 @@
 </div>
 
 <p class="hint">
-  这是 <code>civitai-base-model-chips.user.js</code> v2.0.1 的外观预览：分类折叠 + 组内左新右旧 + 组级全选/清空。
+  这是 <code>civitai-base-model-chips.user.js</code> v1.0 的外观预览：分类折叠 + 组内左新右旧 + 组级全选/清空。
   预览里的勾选是纯视觉演示；装到 Civitai 后点 chip 会写入真实的筛选状态，再点站点的 “Apply filters” 生效。
 </p>
 

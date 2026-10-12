@@ -1,8 +1,7 @@
 // ==UserScript==
-// @name         Civitai Base Model Chips (Categorized)
-// @name:zh-CN   Civitai 基础模型胶囊筛选（分类版）
+// @name         Civitai 基础模型胶囊筛选（分类版）
 // @namespace    https://github.com/LingYingNX/
-// @version      2.0.1
+// @version      1.0
 // @author       LingYingNX (original by lericogit)
 // @description  Replaces the Civitai Base model dropdown with collapsible, time-ordered category groups of chip filters.
 // @description:zh-CN  把 Civitai 的基础模型下拉框改成分组折叠的胶囊筛选：按卡通/写实/视频等分类收起，组内新模型在左，支持按分类一键全选。
@@ -534,6 +533,11 @@
 
       [${CATEGORY_ATTR}="true"][data-open="true"] > [${CATEGORY_BODY_ATTR}="true"] {
         display: flex;
+      }
+
+      [${CHIP_ATTR}="true"] {
+        flex: 0 0 auto;
+        max-width: 100%;
       }
 
       [${CHIP_ATTR}="true"] > label.mantine-Chip-label {
@@ -1071,7 +1075,13 @@
   }
 
   function createChip(section, templates, value, text, selected, isClearChip) {
-    const source = selected ? (templates.checked || templates.unchecked) : templates.unchecked;
+    /*
+     * Always build from the unchecked template. Civitai's checked template uses a
+     * different label box, so mixing the two makes a chip change width the moment
+     * it is clicked - the row re-wraps and the whole panel jumps. Every chip now
+     * shares one markup, and the checked look comes from CSS alone.
+     */
+    const source = templates.unchecked;
     if (!source) {
       return null;
     }
