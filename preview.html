@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>基础模型分类筛选 · 外观预览</title>
+<style>
+  :root {
+    --bg-main: #18191c;
+    --card-bg: #212429;
+    --border-color: #30363d;
+    --group-bg: #1c1f24;
+    --group-header: #23272e;
+    --group-header-hover: #282c35;
+    --chip-bg: #2a2e35;
+    --chip-border: #363b44;
+    --chip-hover: #353b44;
+    --chip-text: #c9d1d9;
+    --chip-active-bg: #1e3a8a;
+    --chip-active-border: #60a5fa;
+    --chip-active-text: #93c5fd;
+    --text-primary: #e5e7eb;
+    --text-muted: #8b949e;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg-main);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Roboto, Arial, sans-serif;
+    font-size: 14px;
+    padding: 16px;
+    margin: 0;
+  }
+
+  .panel {
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 12px 12px;
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .divider::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 3px;
+    height: 16px;
+    background: #4b5563;
+    border-radius: 2px;
+  }
+
+  .divider .line { flex: 1 1 auto; height: 1px; background: var(--border-color); }
+
+  .copy-btn {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    padding: 2px 10px;
+    cursor: pointer;
+  }
+
+  .copy-btn:hover { background: #2a2e35; color: var(--text-primary); }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .toolbar .spacer { flex: 1 1 auto; }
+
+  .cat-group {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--group-bg);
+    overflow: hidden;
+    margin-bottom: 5px;
+  }
+
+  .cat-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    background: var(--group-header);
+    cursor: pointer;
+    user-select: none;
+    font-size: 12.5px;
+  }
+
+  .cat-header:hover { background: var(--group-header-hover); }
+
+  .cat-arrow {
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid var(--text-muted);
+    transition: transform 150ms ease;
+  }
+
+  .cat-group[data-open="true"] .cat-arrow { transform: rotate(90deg); }
+
+  .cat-title { font-weight: 600; }
+  .cat-count { color: var(--text-muted); font-size: 11.5px; }
+
+  .cat-badge {
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    color: #60a5fa;
+    font-size: 11px;
+    line-height: 1.4;
+    padding: 0 6px;
+  }
+
+  .cat-actions { display: inline-flex; gap: 4px; margin-left: auto; }
+
+  .mini-btn {
+    background: #2c313a;
+    border: 1px solid #444c56;
+    border-radius: 4px;
+    color: #cbd5e1;
+    font-size: 11px;
+    line-height: 1.2;
+    padding: 2px 7px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .mini-btn:hover { background: #39404c; color: #fff; }
+
+  .cat-body {
+    display: none;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 8px 9px;
+    border-top: 1px solid var(--border-color);
+  }
+
+  .cat-group[data-open="true"] .cat-body { display: flex; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--chip-bg);
+    border: 1px solid var(--chip-border);
+    border-radius: 12px;
+    color: var(--chip-text);
+    font-size: 12px;
+    line-height: 1.35;
+    padding: 3px 9px;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  .chip:hover { background: var(--chip-hover); color: #fff; border-color: #4b5563; }
+
+  .chip.active {
+    background: var(--chip-active-bg);
+    border-color: var(--chip-active-border);
+    color: var(--chip-active-text);
+  }
+
+  .chip.active::before { content: "✓"; font-size: 10px; }
+
+  .chip.clear { font-weight: 600; }
+
+  .hint {
+    max-width: 720px;
+    margin: 10px auto 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <div class="divider">
+    <span>基础模型</span>
+    <span class="line"></span>
+    <button class="copy-btn" type="button">⚠ 复制模型列表</button>
+  </div>
+  <div id="panel"></div>
+</div>
+
+<p class="hint">
+  这是 <code>civitai-base-model-chips.user.js</code> v2.0.0 的外观预览：分类折叠 + 组内左新右旧 + 组级全选/清空。
+  预览里的勾选是纯视觉演示；装到 Civitai 后点 chip 会写入真实的筛选状态，再点站点的 “Apply filters” 生效。
+</p>
+
+<script>
+const CATEGORIES = [
+  { name: '二次元 / 卡通', models: ['Anima', 'Pony V7', 'NoobAI', 'Illustrious', 'Pony'] },
+  { name: 'SD 系基座', models: ['SD 3.5', 'SDXL Hyper', 'SDXL Lightning', 'SDXL 1.0', 'SD 2.1', 'SD 2.0', 'SD 1.5 Hyper', 'SD 1.5 LCM', 'SD 1.5', 'SD 1.4', 'Kolors'] },
+  { name: 'Flux 系列', models: ['Flux.3', 'Flux 3 Video', 'Flux.2 D', 'Flux.2 Klein 9B', 'Flux.2 Klein 9B-base', 'Flux.2 Klein 4B', 'Flux.2 Klein 4B-base', 'Flux.1 Kontext', 'Flux.1 Krea', 'Flux.1 D', 'Flux.1 S'] },
+  { name: 'Wan（万象）', models: ['Wan Video 3.0', 'Wan Video 2.7', 'Wan Image 2.7', 'Wan Video 2.5 T2V', 'Wan Video 2.5 I2V', 'Wan Video 2.2 T2V-A14B', 'Wan Video 2.2 I2V-A14B', 'Wan Video 2.2 TI2V-5B', 'Wan Video 14B i2v 720p', 'Wan Video 14B i2v 480p', 'Wan Video 14B t2v', 'Wan Video 1.3B t2v'] },
+  { name: '其他视频生成', models: ['LTXV 2.5', 'LTXV 2.3', 'LTXV2', 'LTXV', 'Hunyuan Video', 'Mochi', 'CogVideoX'] },
+  { name: '语言 / 多模态', models: ['Qwen 3', 'Qwen 2.1', 'Qwen 2', 'Qwen', 'HiDream-O1', 'HiDream', 'Grok', 'Hunyuan 1', 'Ernie'] },
+  { name: '现代扩散与实验', models: ['Ideogram 4.0', 'Krea 2', 'PixArt E', 'PixArt a', 'Chroma', 'AuraFlow', 'Lumina', 'MageFlow', 'Reve', 'Muse Image', 'ZImageTurbo', 'ZImageBase', 'Ming Image Design Layer 0.1', 'Ming Image Design 0.1', 'Lens', 'MAI', 'Boogu', 'HappyHorse'] },
+  { name: '音频与实用', models: ['MiniMax Music 3', 'MiniMax H3', 'ACE Audio', 'Sonilo', 'Upscaler', 'Other'] },
+];
+
+const panel = document.getElementById('panel');
+
+const toolbar = document.createElement('div');
+toolbar.className = 'toolbar';
+
+const clearChip = document.createElement('span');
+clearChip.className = 'chip clear active';
+clearChip.textContent = '所有基础模型';
+clearChip.addEventListener('click', () => {
+  document.querySelectorAll('.chip.active').forEach((c) => c.classList.remove('active'));
+  clearChip.classList.add('active');
+});
+toolbar.appendChild(clearChip);
+
+const spacer = document.createElement('span');
+spacer.className = 'spacer';
+toolbar.appendChild(spacer);
+
+const makeMini = (label, onClick) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'mini-btn';
+  b.textContent = label;
+  b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+  return b;
+};
+
+toolbar.appendChild(makeMini('全部展开', () => document.querySelectorAll('.cat-group').forEach((g) => { g.dataset.open = 'true'; })));
+toolbar.appendChild(makeMini('全部折叠', () => document.querySelectorAll('.cat-group').forEach((g) => { g.dataset.open = 'false'; })));
+
+panel.appendChild(toolbar);
+
+CATEGORIES.forEach((cat) => {
+  const group = document.createElement('div');
+  group.className = 'cat-group';
+  group.dataset.open = 'false';
+
+  const header = document.createElement('div');
+  header.className = 'cat-header';
+  header.addEventListener('click', (e) => {
+    if (e.target.classList.contains('mini-btn')) return;
+    group.dataset.open = group.dataset.open === 'true' ? 'false' : 'true';
+  });
+
+  const arrow = document.createElement('span');
+  arrow.className = 'cat-arrow';
+
+  const title = document.createElement('span');
+  title.className = 'cat-title';
+  title.textContent = cat.name;
+
+  const count = document.createElement('span');
+  count.className = 'cat-count';
+  count.textContent = `(${cat.models.length})`;
+
+  const badge = document.createElement('span');
+  badge.className = 'cat-badge';
+  badge.textContent = '已选 0';
+  badge.hidden = true;
+
+  const actions = document.createElement('span');
+  actions.className = 'cat-actions';
+
+  const body = document.createElement('div');
+  body.className = 'cat-body';
+
+  const chips = cat.models.map((model) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = model;
+    chip.addEventListener('click', () => {
+      chip.classList.toggle('active');
+      const selected = body.querySelectorAll('.chip.active').length;
+      badge.hidden = selected === 0;
+      badge.textContent = `已选 ${selected}`;
+      clearChip.classList.toggle('active', document.querySelectorAll('.cat-body .chip.active').length === 0);
+    });
+    body.appendChild(chip);
+    return chip;
+  });
+
+  actions.appendChild(makeMini('全选', () => {
+    chips.forEach((c) => c.classList.add('active'));
+    badge.hidden = false;
+    badge.textContent = `已选 ${chips.length}`;
+    clearChip.classList.remove('active');
+  }));
+
+  actions.appendChild(makeMini('清空', () => {
+    chips.forEach((c) => c.classList.remove('active'));
+    badge.hidden = true;
+    clearChip.classList.add('active');
+  }));
+
+  header.append(arrow, title, count, badge, actions);
+  group.append(header, body);
+  panel.appendChild(group);
+});
+</script>
+
+</body>
+</html>
