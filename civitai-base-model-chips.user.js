@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Civitai 基础模型胶囊筛选+版本胶囊（分类版）
 // @namespace    https://github.com/LingYingNX/
-// @version      1.4
+// @version      1.5
 // @author       LingYingNX (original by lericogit)
 // @description  Replaces Civitai Base model dropdowns with categorized chips and restores inline model version chips.
 // @description:zh-CN  把 Civitai 的基础模型下拉框改成分组折叠的胶囊筛选，并把模型详情页的版本下拉框还原成横向版本胶囊；兼容 Civitai 汉化增强脚本。
@@ -34,7 +34,6 @@
   const TOOLBAR_ATTR = 'data-tm-base-model-toolbar';
   const OPTIONS_ATTR = 'data-tm-base-model-options';
   const VERSION_CHIPS_ATTR = 'data-tm-model-version-chips';
-  const VERSION_CHIP_ATTR = 'data-tm-model-version-chip';
   const VERSION_CONTROL_KEY = 'tm-civitai-model-version-chips-enabled';
   const CCT_SWITCH_KEY = 'CCT_MODEL_VERSION_SWITCH_ENABLED';
   const MODELS_PATH_PATTERN = /^\/models(?:\/|$)/i;
@@ -323,8 +322,8 @@
   let detailWatchdog = null;
   let pageWatchdog = null;
   let cctSwitchOriginal;
+  let cctInjectionTimer = null;
   const modelDetailCache = new Map();
-  const hiddenVersionControls = new Map();
   let versionChipsEnabled = readVersionChipsEnabled();
 
   function normalizeText(text) {
@@ -582,63 +581,6 @@
         opacity: 1 !important;
       }
 
-      [${VERSION_CHIPS_ATTR}="true"] {
-        width: 100%;
-        display: flex;
-        align-items: center;
-        gap: calc(0.25rem * var(--mantine-scale, 1));
-        overflow-x: auto;
-        overscroll-behavior-x: contain;
-        padding-bottom: calc(0.125rem * var(--mantine-scale, 1));
-        scrollbar-width: thin;
-        scrollbar-color: var(--mantine-color-dark-4, #5c5f66) transparent;
-      }
-
-      [${VERSION_CHIPS_ATTR}="true"]::-webkit-scrollbar {
-        height: calc(0.25rem * var(--mantine-scale, 1));
-      }
-
-      [${VERSION_CHIPS_ATTR}="true"]::-webkit-scrollbar-thumb {
-        border-radius: 999px;
-        background: var(--mantine-color-dark-4, #5c5f66);
-      }
-
-      [${VERSION_CHIPS_ATTR}="true"]::-webkit-scrollbar-track {
-        background: transparent;
-      }
-
-      [${VERSION_CHIP_ATTR}="true"] {
-        appearance: none;
-        flex: 0 0 auto;
-        height: calc(1.625rem * var(--mantine-scale, 1));
-        min-width: calc(2.5rem * var(--mantine-scale, 1));
-        padding: 0 calc(0.5rem * var(--mantine-scale, 1));
-        border: calc(0.0625rem * var(--mantine-scale, 1)) solid transparent;
-        border-radius: calc(0.25rem * var(--mantine-scale, 1));
-        background: var(--mantine-color-gray-filled, #343a40);
-        color: #fff;
-        cursor: pointer;
-        font: inherit;
-        font-size: var(--mantine-font-size-sm, 0.875rem);
-        font-weight: 600;
-        line-height: 1;
-        white-space: nowrap;
-        transition: background-color 120ms ease;
-      }
-
-      [${VERSION_CHIP_ATTR}="true"]:hover {
-        background: var(--mantine-color-gray-filled-hover, #3e454d);
-      }
-
-      [${VERSION_CHIP_ATTR}="true"][data-active="true"] {
-        background: var(--mantine-color-blue-filled, #1971c2);
-      }
-
-      [${VERSION_CHIP_ATTR}="true"]:focus-visible {
-        outline: 2px solid var(--mantine-color-blue-4, #4dabf7);
-        outline-offset: 2px;
-      }
-
     `;
 
     document.head.appendChild(style);
@@ -752,11 +694,6 @@
       || null;
   }
 
-  function getVersionControlRoot(element) {
-    return element.closest('.mantine-Select-root, .mantine-Combobox-root')
-      || element;
-  }
-
   function getModelDetailTitleAnchor(heading) {
     return heading.closest('.mantine-Stack-root')
       || heading.closest('.mantine-Group-root')?.parentElement
@@ -788,122 +725,30 @@
 
   function enableNativeVersionChipsForCct() {
     syncCctVersionSwitch(false);
-    window.CCT?.injectModelVersionDropdown?.();
     document.querySelectorAll('.cct-model-version-list-hidden')
       .forEach((element) => element.classList.remove('cct-model-version-list-hidden'));
     document.querySelectorAll('.cct-model-version-dropdown')
       .forEach((element) => element.remove());
+    scheduleCctInjection(150);
     return true;
   }
 
-  function findNativeVersionControl(model, heading) {
-    const currentVersion = getCurrentModelVersion(model);
-    const versionName = normalizeKey(currentVersion?.name);
-    const headingRect = heading.getBoundingClientRect();
-    const titleAnchorRect = getModelDetailTitleAnchor(heading).getBoundingClientRect();
-    const candidates = new Set([
-      ...document.querySelectorAll(
-        '[role="combobox"], select, button, [aria-haspopup="listbox"], .mantine-Select-root, .mantine-Combobox-root'
-      ),
-    ]);
-    let best = null;
-    let nearby = null;
-
-    for (const candidate of candidates) {
-      if (candidate.closest(`[${VERSION_CHIPS_ATTR}="true"]`)) {
-        continue;
-      }
-
-      const controlRoot = getVersionControlRoot(candidate);
-      const alreadyHidden = hiddenVersionControls.has(candidate)
-        || hiddenVersionControls.has(controlRoot);
-      const rect = candidate.getBoundingClientRect();
-      if (!alreadyHidden && (rect.width <= 0 || rect.height <= 0)) {
-        continue;
-      }
-
-      const value = normalizeKey(candidate.value || candidate.getAttribute('value'));
-      const text = normalizeKey(candidate.textContent);
-      const exactMatch = Boolean(versionName) && (value === versionName || text === versionName);
-      const partialMatch = Boolean(versionName) && text.includes(versionName);
-
-      if (exactMatch || partialMatch) {
-        const distance = Math.abs(rect.top - headingRect.bottom) + Math.abs(rect.left - headingRect.left);
-        const score = (exactMatch ? 100 : 20)
-          + (candidate.matches('[role="combobox"], select, [aria-haspopup="listbox"]') ? 20 : 0)
-          - distance / 100;
-
-        if (!best || score > best.score) {
-          best = { candidate, score };
-        }
-      }
-
-      const isBelowTitle = rect.top >= titleAnchorRect.bottom - 8;
-      const isNearTitle = rect.top <= titleAnchorRect.bottom + 320;
-      const isInTitleColumn = rect.left < titleAnchorRect.right;
-      if (
-        (!candidate.matches('button') || exactMatch || partialMatch)
-        && isBelowTitle
-        && isNearTitle
-        && isInTitleColumn
-      ) {
-        const nearbyScore = (candidate.matches('[aria-haspopup="listbox"]') ? 20 : 0)
-          - Math.abs(rect.top - titleAnchorRect.bottom) / 100;
-        if (!nearby || nearbyScore > nearby.score) {
-          nearby = { candidate, score: nearbyScore };
-        }
-      }
+  function scheduleCctInjection(delay = 0) {
+    if (cctInjectionTimer) {
+      window.clearTimeout(cctInjectionTimer);
     }
 
-    const match = best || nearby;
-    return match ? getVersionControlRoot(match.candidate) : null;
-  }
-
-  function hideNativeVersionControl(control) {
-    if (!hiddenVersionControls.has(control)) {
-      hiddenVersionControls.set(control, {
-        style: control.getAttribute('style'),
-        hidden: control.hidden,
-      });
-    }
-
-    if (!control.hidden) {
-      control.hidden = true;
-    }
-
-    for (const [property, value] of [
-      ['display', 'none'],
-      ['visibility', 'hidden'],
-      ['pointer-events', 'none'],
-    ]) {
-      if (
-        control.style.getPropertyValue(property) !== value
-        || control.style.getPropertyPriority(property) !== 'important'
-      ) {
-        control.style.setProperty(property, value, 'important');
-      }
-    }
-  }
-
-  function restoreNativeVersionControls() {
-    for (const [control, original] of hiddenVersionControls.entries()) {
-      control.hidden = original.hidden;
-
-      if (original.style === null) {
-        control.removeAttribute('style');
-      } else {
-        control.setAttribute('style', original.style);
-      }
-    }
-
-    hiddenVersionControls.clear();
+    cctInjectionTimer = window.setTimeout(() => {
+      cctInjectionTimer = null;
+      window.CCT?.injectModelVersionDropdown?.();
+    }, delay);
   }
 
   function cleanupModelDetailUi() {
     if (cctSwitchOriginal !== undefined) {
       syncCctVersionSwitch(cctSwitchOriginal);
       cctSwitchOriginal = undefined;
-      window.CCT?.injectModelVersionDropdown?.();
+      scheduleCctInjection(200);
     }
 
     stopDetailWatchdog();
@@ -911,7 +756,6 @@
     for (const wrapper of document.querySelectorAll(`[${VERSION_CHIPS_ATTR}="true"]`)) {
       wrapper.remove();
     }
-    restoreNativeVersionControls();
     detailUiState = null;
   }
 
@@ -927,27 +771,8 @@
       return false;
     }
 
-    if (!state.nativeControl?.isConnected) {
-      const heading = getVisibleDetailHeading();
-      state.nativeControl = heading
-        ? findNativeVersionControl(state.model, heading)
-        : null;
-    }
-
-    if (state.nativeControl) {
-      hideNativeVersionControl(state.nativeControl);
-    }
-
     enableNativeVersionChipsForCct();
-
-    if (
-      !state.wrapper.isConnected
-      || state.wrapper.previousElementSibling !== state.titleAnchor
-    ) {
-      state.wrapper = ensureVersionChipsWrapper(state.titleAnchor);
-    }
-
-    renderVersionChips(state.wrapper, state.model);
+    state.wrapper = null;
     return true;
   }
 
@@ -1013,71 +838,6 @@
     detailWatchdog = null;
   }
 
-  function ensureVersionChipsWrapper(titleAnchor) {
-    let wrapper = document.querySelector(`[${VERSION_CHIPS_ATTR}="true"]`);
-
-    if (!wrapper) {
-      wrapper = document.createElement('div');
-      wrapper.setAttribute(VERSION_CHIPS_ATTR, 'true');
-      wrapper.setAttribute('role', 'group');
-      wrapper.setAttribute('aria-label', '模型版本');
-    }
-
-    if (!wrapper.isConnected || wrapper.previousElementSibling !== titleAnchor) {
-      titleAnchor.insertAdjacentElement('afterend', wrapper);
-    }
-
-    return wrapper;
-  }
-
-  function renderVersionChips(wrapper, model) {
-    const versions = Array.isArray(model?.modelVersions) ? model.modelVersions : [];
-    const currentVersion = getCurrentModelVersion(model);
-    const renderKey = versions
-      .map((version) => `${version.id}\u0001${version.name}\u0001${version.baseModel}`)
-      .join('\u0002');
-
-    if (wrapper.getAttribute(OPTIONS_ATTR) === renderKey && wrapper.hasChildNodes()) {
-      return;
-    }
-
-    const fragment = document.createDocumentFragment();
-
-    for (const version of versions) {
-      const button = document.createElement('button');
-      const active = String(version.id) === String(currentVersion?.id);
-
-      button.type = 'button';
-      button.className = 'tm-version-chip';
-      button.setAttribute(VERSION_CHIP_ATTR, 'true');
-      button.dataset.active = String(active);
-      button.textContent = normalizeText(version.name);
-      button.setAttribute(
-        'aria-label',
-        `${active ? '当前版本' : '切换到此版本'}：${version.name}，基础模型：${version.baseModel || '未知'}`
-      );
-
-      if (active) {
-        button.setAttribute('aria-current', 'page');
-      }
-
-      button.addEventListener('click', () => {
-        if (active) {
-          return;
-        }
-
-        const url = new URL(window.location.href);
-        url.searchParams.set('modelVersionId', String(version.id));
-        window.location.assign(url.toString());
-      });
-
-      fragment.appendChild(button);
-    }
-
-    wrapper.replaceChildren(fragment);
-    wrapper.setAttribute(OPTIONS_ATTR, renderKey);
-  }
-
   async function syncModelDetailPage() {
     const requestToken = ++detailRequestToken;
     const modelId = getModelDetailId();
@@ -1113,32 +873,9 @@
         return;
       }
 
-      if (
-        detailUiState
-        && detailUiState.modelId === modelId
-        && detailUiState.wrapper.isConnected
-        && detailUiState.wrapper.previousElementSibling === detailUiState.titleAnchor
-        && detailUiState.titleAnchor.isConnected
-      ) {
-        detailUiState.model = model;
-        if (detailUiState.nativeControl?.isConnected) {
-          hideNativeVersionControl(detailUiState.nativeControl);
-        }
-        renderVersionChips(detailUiState.wrapper, model);
-        startDetailWatchdog();
-        return;
-      }
-
-      const nativeControl = findNativeVersionControl(model, heading);
-      if (nativeControl) {
-        hideNativeVersionControl(nativeControl);
-      }
-
       enableNativeVersionChipsForCct();
 
-      const wrapper = ensureVersionChipsWrapper(titleAnchor);
-      detailUiState = { modelId, wrapper, nativeControl, titleAnchor, model };
-      renderVersionChips(wrapper, model);
+      detailUiState = { modelId, wrapper: null, nativeControl: null, titleAnchor, model };
       startDetailWatchdog();
     } catch {
       // Keep the last working UI during transient API or hydration failures.
