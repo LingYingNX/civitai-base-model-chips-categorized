@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Civitai 基础模型胶囊筛选+版本胶囊（分类版）
+// @name         Civitai 基础模型胶囊筛选（分类版）
 // @namespace    https://github.com/LingYingNX/
-// @version      1.1
+// @version      1.0
 // @author       LingYingNX (original by lericogit)
-// @description  Replaces Civitai Base model dropdowns with categorized chips and restores inline model version chips.
-// @description:zh-CN  把 Civitai 的基础模型下拉框改成分组折叠的胶囊筛选，并把模型详情页的版本下拉框还原成横向版本胶囊；兼容 Civitai 汉化增强脚本。
+// @description  Replaces the Civitai Base model dropdown with collapsible, time-ordered category groups of chip filters.
+// @description:zh-CN  把 Civitai 的基础模型下拉框改成分组折叠的胶囊筛选：按卡通/写实/视频等分类收起，组内新模型在左，支持按分类一键全选。
 // @license      MIT
 // @homepageURL  https://github.com/LingYingNX/civitai-base-model-chips-categorized
 // @supportURL   https://github.com/LingYingNX/civitai-base-model-chips-categorized/issues
@@ -14,9 +14,7 @@
 // @match        https://civitai.red/*
 // @match        https://civitai.green/*
 // @run-at       document-idle
-// @grant        GM_getValue
-// @grant        GM_setValue
-// @grant        GM_registerMenuCommand
+// @grant        none
 // ==/UserScript==
 
 (function () {
@@ -33,11 +31,7 @@
   const CATEGORY_ACTION_ATTR = 'data-tm-base-model-category-action';
   const TOOLBAR_ATTR = 'data-tm-base-model-toolbar';
   const OPTIONS_ATTR = 'data-tm-base-model-options';
-  const VERSION_CHIPS_ATTR = 'data-tm-model-version-chips';
-  const VERSION_CONTROL_KEY = 'tm-civitai-model-version-chips-enabled';
-  const CCT_SWITCH_KEY = 'CCT_MODEL_VERSION_SWITCH_ENABLED';
   const MODELS_PATH_PATTERN = /^\/models(?:\/|$)/i;
-  const MODEL_DETAIL_PATH_PATTERN = /^\/models\/(\d+)(?:\/|$)/i;
   const FILTER_MODES = {
     OFF: 'off',
     BLACKLIST: 'blacklist',
@@ -316,15 +310,7 @@
   let chipIdCounter = 0;
   let syncQueued = false;
   let batchDepth = 0;
-  let pageObserver = null;
-  let detailRequestToken = 0;
-  let detailUiState = null;
-  let detailWatchdog = null;
-  let pageWatchdog = null;
-  let cctSwitchOriginal;
-  let cctInjectionTimer = null;
-  const modelDetailCache = new Map();
-  let versionChipsEnabled = readVersionChipsEnabled();
+  let modelsPageObserver = null;
 
   function normalizeText(text) {
     return (text || '').replace(/\s+/g, ' ').trim();
@@ -599,289 +585,6 @@
     element.style.setProperty('pointer-events', 'none', 'important');
   }
 
-  function readVersionChipsEnabled() {
-    try {
-      if (typeof GM_getValue === 'function') {
-        return GM_getValue(VERSION_CONTROL_KEY, true) !== false;
-      }
-    } catch {
-      // Fall through to localStorage.
-    }
-
-    try {
-      return localStorage.getItem(VERSION_CONTROL_KEY) !== 'false';
-    } catch {
-      return true;
-    }
-  }
-
-  function setVersionChipsEnabled(enabled) {
-    versionChipsEnabled = Boolean(enabled);
-
-    try {
-      if (typeof GM_setValue === 'function') {
-        GM_setValue(VERSION_CONTROL_KEY, versionChipsEnabled);
-      }
-    } catch {
-      // localStorage remains available as a fallback.
-    }
-
-    try {
-      localStorage.setItem(VERSION_CONTROL_KEY, String(versionChipsEnabled));
-    } catch {
-      // Persistence is optional; the current page still updates.
-    }
-
-    refreshPageLifecycle();
-  }
-
-  function registerVersionChipMenu() {
-    if (typeof GM_registerMenuCommand !== 'function') {
-      return;
-    }
-
-    GM_registerMenuCommand('版本胶囊：开启', () => setVersionChipsEnabled(true));
-    GM_registerMenuCommand('版本胶囊：关闭', () => setVersionChipsEnabled(false));
-  }
-
-  function getModelDetailId() {
-    const match = window.location.pathname.match(MODEL_DETAIL_PATH_PATTERN);
-    return match ? match[1] : null;
-  }
-
-  function isModelDetailPage() {
-    return Boolean(getModelDetailId());
-  }
-
-  function getModelDetailData(modelId) {
-    const key = String(modelId);
-
-    if (!modelDetailCache.has(key)) {
-      const request = fetch(`${window.location.origin}/api/v1/models/${key}`, {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
-      })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Civitai model API returned ${response.status}`);
-          }
-          return response.json();
-        })
-        .catch((error) => {
-          modelDetailCache.delete(key);
-          throw error;
-        });
-
-      modelDetailCache.set(key, request);
-    }
-
-    return modelDetailCache.get(key);
-  }
-
-  function getVisibleDetailHeading() {
-    return [...document.querySelectorAll('main h1, h1')].find((heading) => {
-      const rect = heading.getBoundingClientRect();
-      return normalizeText(heading.textContent) && rect.width > 0 && rect.height > 0;
-    }) || null;
-  }
-
-  function getCurrentModelVersion(model) {
-    const requestedId = new URLSearchParams(window.location.search).get('modelVersionId');
-    const versions = Array.isArray(model?.modelVersions) ? model.modelVersions : [];
-
-    return versions.find((version) => String(version.id) === requestedId)
-      || versions[0]
-      || null;
-  }
-
-  function getModelDetailTitleAnchor(heading) {
-    return heading.closest('.mantine-Stack-root')
-      || heading.closest('.mantine-Group-root')?.parentElement
-      || heading.parentElement;
-  }
-
-  function syncCctVersionSwitch(enabled) {
-    const cct = window.CCT;
-    if (cctSwitchOriginal === undefined) {
-      try {
-        cctSwitchOriginal = typeof cct?.isModelVersionSwitchEnabled === 'function'
-          ? cct.isModelVersionSwitchEnabled()
-          : localStorage.getItem(CCT_SWITCH_KEY) !== 'false';
-      } catch {
-        cctSwitchOriginal = true;
-      }
-    }
-
-    if (typeof cct?.setModelVersionSwitchEnabled === 'function') {
-      cct.setModelVersionSwitchEnabled(enabled);
-    } else {
-      try {
-        localStorage.setItem(CCT_SWITCH_KEY, String(enabled));
-      } catch {
-        // The class cleanup below still releases CCT's hidden version list.
-      }
-    }
-  }
-
-  function enableNativeVersionChipsForCct() {
-    syncCctVersionSwitch(false);
-    document.querySelectorAll('.cct-model-version-list-hidden')
-      .forEach((element) => element.classList.remove('cct-model-version-list-hidden'));
-    document.querySelectorAll('.cct-model-version-dropdown')
-      .forEach((element) => element.remove());
-    scheduleCctInjection(150);
-    return true;
-  }
-
-  function scheduleCctInjection(delay = 0) {
-    if (cctInjectionTimer) {
-      window.clearTimeout(cctInjectionTimer);
-    }
-
-    cctInjectionTimer = window.setTimeout(() => {
-      cctInjectionTimer = null;
-      window.CCT?.injectModelVersionDropdown?.();
-    }, delay);
-  }
-
-  function cleanupModelDetailUi() {
-    if (cctSwitchOriginal !== undefined) {
-      syncCctVersionSwitch(cctSwitchOriginal);
-      cctSwitchOriginal = undefined;
-      scheduleCctInjection(200);
-    }
-
-    stopDetailWatchdog();
-
-    for (const wrapper of document.querySelectorAll(`[${VERSION_CHIPS_ATTR}="true"]`)) {
-      wrapper.remove();
-    }
-    detailUiState = null;
-  }
-
-  function restoreModelDetailUiFromState() {
-    const state = detailUiState;
-
-    if (
-      !state
-      || !versionChipsEnabled
-      || state.modelId !== getModelDetailId()
-      || !state.titleAnchor.isConnected
-    ) {
-      return false;
-    }
-
-    enableNativeVersionChipsForCct();
-    state.wrapper = null;
-    return true;
-  }
-
-  function startDetailWatchdog() {
-    if (detailWatchdog) {
-      return;
-    }
-
-    detailWatchdog = window.setInterval(() => {
-      if (!versionChipsEnabled || !isModelDetailPage()) {
-        return;
-      }
-
-      if (!restoreModelDetailUiFromState()) {
-        scheduleSync();
-      }
-    }, 150);
-  }
-
-  function startPageWatchdog() {
-    if (pageWatchdog) {
-      return;
-    }
-
-    pageWatchdog = window.setInterval(() => {
-      const modelsPage = isModelsPage();
-      const detailPage = isModelDetailPage();
-
-      if (!modelsPage && !detailPage) {
-        return;
-      }
-
-      if (detailPage) {
-        if (!detailUiState) {
-          scheduleSync();
-        } else {
-          restoreModelDetailUiFromState();
-        }
-      } else if (modelsPage) {
-        const wrapper = document.querySelector(`[${WRAPPER_ATTR}="true"]`);
-        if (!wrapper?.isConnected) {
-          scheduleSync();
-        }
-      }
-    }, 250);
-  }
-
-  function stopPageWatchdog() {
-    if (!pageWatchdog) {
-      return;
-    }
-
-    window.clearInterval(pageWatchdog);
-    pageWatchdog = null;
-  }
-
-  function stopDetailWatchdog() {
-    if (!detailWatchdog) {
-      return;
-    }
-
-    window.clearInterval(detailWatchdog);
-    detailWatchdog = null;
-  }
-
-  async function syncModelDetailPage() {
-    const requestToken = ++detailRequestToken;
-    const modelId = getModelDetailId();
-
-    if (!versionChipsEnabled || !modelId) {
-      cleanupModelDetailUi();
-      return;
-    }
-
-    const heading = getVisibleDetailHeading();
-    if (!heading) {
-      return;
-    }
-
-    try {
-      const model = await getModelDetailData(modelId);
-      if (
-        requestToken !== detailRequestToken
-        || modelId !== getModelDetailId()
-        || !versionChipsEnabled
-      ) {
-        return;
-      }
-
-      const versions = Array.isArray(model?.modelVersions) ? model.modelVersions : [];
-      if (!versions.length) {
-        cleanupModelDetailUi();
-        return;
-      }
-
-      const titleAnchor = getModelDetailTitleAnchor(heading);
-      if (!titleAnchor) {
-        return;
-      }
-
-      enableNativeVersionChipsForCct();
-
-      detailUiState = { modelId, wrapper: null, nativeControl: null, titleAnchor, model };
-      startDetailWatchdog();
-    } catch {
-      // Keep the last working UI during transient API or hydration failures.
-    }
-  }
-
   function scheduleSync() {
     if (syncQueued) {
       return;
@@ -897,13 +600,11 @@
       }
 
       syncAllSections();
-      syncModelDetailPage();
     });
   }
 
   function isModelsPage() {
-    return MODELS_PATH_PATTERN.test(window.location.pathname)
-      && !MODEL_DETAIL_PATH_PATTERN.test(window.location.pathname);
+    return MODELS_PATH_PATTERN.test(window.location.pathname);
   }
 
   function getBaseModelSections() {
@@ -1713,16 +1414,16 @@
     }
   }
 
-  function startPageObserver() {
-    if (pageObserver || !document.body) {
+  function startModelsPageObserver() {
+    if (modelsPageObserver || !document.body) {
       return;
     }
 
-    pageObserver = new MutationObserver(() => {
+    modelsPageObserver = new MutationObserver(() => {
       scheduleSync();
     });
 
-    pageObserver.observe(document.body, {
+    modelsPageObserver.observe(document.body, {
       childList: true,
       subtree: true,
       attributes: true,
@@ -1730,34 +1431,24 @@
     });
   }
 
-  function stopPageObserver() {
-    if (!pageObserver) {
+  function stopModelsPageObserver() {
+    if (!modelsPageObserver) {
       return;
     }
 
-    pageObserver.disconnect();
-    pageObserver = null;
+    modelsPageObserver.disconnect();
+    modelsPageObserver = null;
   }
 
-  function refreshPageLifecycle() {
-    const modelsPage = isModelsPage();
-    const modelDetailPage = isModelDetailPage();
-
-    if (!modelsPage && !modelDetailPage) {
-      stopPageObserver();
-      stopPageWatchdog();
-      cleanupModelDetailUi();
+  function refreshModelsPageLifecycle() {
+    if (isModelsPage()) {
+      ensureStyles();
+      startModelsPageObserver();
+      scheduleSync();
       return;
     }
 
-    ensureStyles();
-    startPageObserver();
-    startPageWatchdog();
-    scheduleSync();
-
-    if (!modelDetailPage) {
-      cleanupModelDetailUi();
-    }
+    stopModelsPageObserver();
   }
 
   function installHistoryHooks() {
@@ -1771,7 +1462,7 @@
 
       const wrapped = function (...args) {
         const result = original.apply(this, args);
-        refreshPageLifecycle();
+        refreshModelsPageLifecycle();
         return result;
       };
 
@@ -1781,11 +1472,10 @@
   }
 
   function start() {
-    registerVersionChipMenu();
     installHistoryHooks();
-    refreshPageLifecycle();
-    window.addEventListener('popstate', refreshPageLifecycle);
-    window.addEventListener('hashchange', refreshPageLifecycle);
+    refreshModelsPageLifecycle();
+    window.addEventListener('popstate', refreshModelsPageLifecycle);
+    window.addEventListener('hashchange', refreshModelsPageLifecycle);
   }
 
   if (document.readyState === 'loading') {
