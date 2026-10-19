@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Civitai 基础模型胶囊筛选+版本胶囊（分类版）
 // @namespace    https://github.com/LingYingNX/
-// @version      1.5
+// @version      1.1
 // @author       LingYingNX (original by lericogit)
 // @description  Replaces Civitai Base model dropdowns with categorized chips and restores inline model version chips.
 // @description:zh-CN  把 Civitai 的基础模型下拉框改成分组折叠的胶囊筛选，并把模型详情页的版本下拉框还原成横向版本胶囊；兼容 Civitai 汉化增强脚本。
