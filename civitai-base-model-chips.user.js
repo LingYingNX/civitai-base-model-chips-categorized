@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Civitai 基础模型胶囊筛选（分类版）
+// @name         Civitai 基础模型胶囊筛选+版本胶囊（分类版）
 // @namespace    https://github.com/LingYingNX/
-// @version      1.0
+// @version      1.4
 // @author       LingYingNX (original by lericogit)
-// @description  Replaces the Civitai Base model dropdown with collapsible, time-ordered category groups of chip filters.
-// @description:zh-CN  把 Civitai 的基础模型下拉框改成分组折叠的胶囊筛选：按卡通/写实/视频等分类收起，组内新模型在左，支持按分类一键全选。
+// @description  Replaces Civitai Base model dropdowns with categorized chips and restores inline model version chips.
+// @description:zh-CN  把 Civitai 的基础模型下拉框改成分组折叠的胶囊筛选，并把模型详情页的版本下拉框还原成横向版本胶囊；兼容 Civitai 汉化增强脚本。
 // @license      MIT
 // @homepageURL  https://github.com/LingYingNX/civitai-base-model-chips-categorized
 // @supportURL   https://github.com/LingYingNX/civitai-base-model-chips-categorized/issues
@@ -14,7 +14,9 @@
 // @match        https://civitai.red/*
 // @match        https://civitai.green/*
 // @run-at       document-idle
-// @grant        none
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_registerMenuCommand
 // ==/UserScript==
 
 (function () {
@@ -31,7 +33,12 @@
   const CATEGORY_ACTION_ATTR = 'data-tm-base-model-category-action';
   const TOOLBAR_ATTR = 'data-tm-base-model-toolbar';
   const OPTIONS_ATTR = 'data-tm-base-model-options';
+  const VERSION_CHIPS_ATTR = 'data-tm-model-version-chips';
+  const VERSION_CHIP_ATTR = 'data-tm-model-version-chip';
+  const VERSION_CONTROL_KEY = 'tm-civitai-model-version-chips-enabled';
+  const CCT_SWITCH_KEY = 'CCT_MODEL_VERSION_SWITCH_ENABLED';
   const MODELS_PATH_PATTERN = /^\/models(?:\/|$)/i;
+  const MODEL_DETAIL_PATH_PATTERN = /^\/models\/(\d+)(?:\/|$)/i;
   const FILTER_MODES = {
     OFF: 'off',
     BLACKLIST: 'blacklist',
@@ -310,7 +317,15 @@
   let chipIdCounter = 0;
   let syncQueued = false;
   let batchDepth = 0;
-  let modelsPageObserver = null;
+  let pageObserver = null;
+  let detailRequestToken = 0;
+  let detailUiState = null;
+  let detailWatchdog = null;
+  let pageWatchdog = null;
+  let cctSwitchOriginal;
+  const modelDetailCache = new Map();
+  const hiddenVersionControls = new Map();
+  let versionChipsEnabled = readVersionChipsEnabled();
 
   function normalizeText(text) {
     return (text || '').replace(/\s+/g, ' ').trim();
@@ -567,6 +582,63 @@
         opacity: 1 !important;
       }
 
+      [${VERSION_CHIPS_ATTR}="true"] {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: calc(0.25rem * var(--mantine-scale, 1));
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        padding-bottom: calc(0.125rem * var(--mantine-scale, 1));
+        scrollbar-width: thin;
+        scrollbar-color: var(--mantine-color-dark-4, #5c5f66) transparent;
+      }
+
+      [${VERSION_CHIPS_ATTR}="true"]::-webkit-scrollbar {
+        height: calc(0.25rem * var(--mantine-scale, 1));
+      }
+
+      [${VERSION_CHIPS_ATTR}="true"]::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: var(--mantine-color-dark-4, #5c5f66);
+      }
+
+      [${VERSION_CHIPS_ATTR}="true"]::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      [${VERSION_CHIP_ATTR}="true"] {
+        appearance: none;
+        flex: 0 0 auto;
+        height: calc(1.625rem * var(--mantine-scale, 1));
+        min-width: calc(2.5rem * var(--mantine-scale, 1));
+        padding: 0 calc(0.5rem * var(--mantine-scale, 1));
+        border: calc(0.0625rem * var(--mantine-scale, 1)) solid transparent;
+        border-radius: calc(0.25rem * var(--mantine-scale, 1));
+        background: var(--mantine-color-gray-filled, #343a40);
+        color: #fff;
+        cursor: pointer;
+        font: inherit;
+        font-size: var(--mantine-font-size-sm, 0.875rem);
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        transition: background-color 120ms ease;
+      }
+
+      [${VERSION_CHIP_ATTR}="true"]:hover {
+        background: var(--mantine-color-gray-filled-hover, #3e454d);
+      }
+
+      [${VERSION_CHIP_ATTR}="true"][data-active="true"] {
+        background: var(--mantine-color-blue-filled, #1971c2);
+      }
+
+      [${VERSION_CHIP_ATTR}="true"]:focus-visible {
+        outline: 2px solid var(--mantine-color-blue-4, #4dabf7);
+        outline-offset: 2px;
+      }
+
     `;
 
     document.head.appendChild(style);
@@ -585,6 +657,494 @@
     element.style.setProperty('pointer-events', 'none', 'important');
   }
 
+  function readVersionChipsEnabled() {
+    try {
+      if (typeof GM_getValue === 'function') {
+        return GM_getValue(VERSION_CONTROL_KEY, true) !== false;
+      }
+    } catch {
+      // Fall through to localStorage.
+    }
+
+    try {
+      return localStorage.getItem(VERSION_CONTROL_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  }
+
+  function setVersionChipsEnabled(enabled) {
+    versionChipsEnabled = Boolean(enabled);
+
+    try {
+      if (typeof GM_setValue === 'function') {
+        GM_setValue(VERSION_CONTROL_KEY, versionChipsEnabled);
+      }
+    } catch {
+      // localStorage remains available as a fallback.
+    }
+
+    try {
+      localStorage.setItem(VERSION_CONTROL_KEY, String(versionChipsEnabled));
+    } catch {
+      // Persistence is optional; the current page still updates.
+    }
+
+    refreshPageLifecycle();
+  }
+
+  function registerVersionChipMenu() {
+    if (typeof GM_registerMenuCommand !== 'function') {
+      return;
+    }
+
+    GM_registerMenuCommand('版本胶囊：开启', () => setVersionChipsEnabled(true));
+    GM_registerMenuCommand('版本胶囊：关闭', () => setVersionChipsEnabled(false));
+  }
+
+  function getModelDetailId() {
+    const match = window.location.pathname.match(MODEL_DETAIL_PATH_PATTERN);
+    return match ? match[1] : null;
+  }
+
+  function isModelDetailPage() {
+    return Boolean(getModelDetailId());
+  }
+
+  function getModelDetailData(modelId) {
+    const key = String(modelId);
+
+    if (!modelDetailCache.has(key)) {
+      const request = fetch(`${window.location.origin}/api/v1/models/${key}`, {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Civitai model API returned ${response.status}`);
+          }
+          return response.json();
+        })
+        .catch((error) => {
+          modelDetailCache.delete(key);
+          throw error;
+        });
+
+      modelDetailCache.set(key, request);
+    }
+
+    return modelDetailCache.get(key);
+  }
+
+  function getVisibleDetailHeading() {
+    return [...document.querySelectorAll('main h1, h1')].find((heading) => {
+      const rect = heading.getBoundingClientRect();
+      return normalizeText(heading.textContent) && rect.width > 0 && rect.height > 0;
+    }) || null;
+  }
+
+  function getCurrentModelVersion(model) {
+    const requestedId = new URLSearchParams(window.location.search).get('modelVersionId');
+    const versions = Array.isArray(model?.modelVersions) ? model.modelVersions : [];
+
+    return versions.find((version) => String(version.id) === requestedId)
+      || versions[0]
+      || null;
+  }
+
+  function getVersionControlRoot(element) {
+    return element.closest('.mantine-Select-root, .mantine-Combobox-root')
+      || element;
+  }
+
+  function getModelDetailTitleAnchor(heading) {
+    return heading.closest('.mantine-Stack-root')
+      || heading.closest('.mantine-Group-root')?.parentElement
+      || heading.parentElement;
+  }
+
+  function syncCctVersionSwitch(enabled) {
+    const cct = window.CCT;
+    if (cctSwitchOriginal === undefined) {
+      try {
+        cctSwitchOriginal = typeof cct?.isModelVersionSwitchEnabled === 'function'
+          ? cct.isModelVersionSwitchEnabled()
+          : localStorage.getItem(CCT_SWITCH_KEY) !== 'false';
+      } catch {
+        cctSwitchOriginal = true;
+      }
+    }
+
+    if (typeof cct?.setModelVersionSwitchEnabled === 'function') {
+      cct.setModelVersionSwitchEnabled(enabled);
+    } else {
+      try {
+        localStorage.setItem(CCT_SWITCH_KEY, String(enabled));
+      } catch {
+        // The class cleanup below still releases CCT's hidden version list.
+      }
+    }
+  }
+
+  function enableNativeVersionChipsForCct() {
+    syncCctVersionSwitch(false);
+    window.CCT?.injectModelVersionDropdown?.();
+    document.querySelectorAll('.cct-model-version-list-hidden')
+      .forEach((element) => element.classList.remove('cct-model-version-list-hidden'));
+    document.querySelectorAll('.cct-model-version-dropdown')
+      .forEach((element) => element.remove());
+    return true;
+  }
+
+  function findNativeVersionControl(model, heading) {
+    const currentVersion = getCurrentModelVersion(model);
+    const versionName = normalizeKey(currentVersion?.name);
+    const headingRect = heading.getBoundingClientRect();
+    const titleAnchorRect = getModelDetailTitleAnchor(heading).getBoundingClientRect();
+    const candidates = new Set([
+      ...document.querySelectorAll(
+        '[role="combobox"], select, button, [aria-haspopup="listbox"], .mantine-Select-root, .mantine-Combobox-root'
+      ),
+    ]);
+    let best = null;
+    let nearby = null;
+
+    for (const candidate of candidates) {
+      if (candidate.closest(`[${VERSION_CHIPS_ATTR}="true"]`)) {
+        continue;
+      }
+
+      const controlRoot = getVersionControlRoot(candidate);
+      const alreadyHidden = hiddenVersionControls.has(candidate)
+        || hiddenVersionControls.has(controlRoot);
+      const rect = candidate.getBoundingClientRect();
+      if (!alreadyHidden && (rect.width <= 0 || rect.height <= 0)) {
+        continue;
+      }
+
+      const value = normalizeKey(candidate.value || candidate.getAttribute('value'));
+      const text = normalizeKey(candidate.textContent);
+      const exactMatch = Boolean(versionName) && (value === versionName || text === versionName);
+      const partialMatch = Boolean(versionName) && text.includes(versionName);
+
+      if (exactMatch || partialMatch) {
+        const distance = Math.abs(rect.top - headingRect.bottom) + Math.abs(rect.left - headingRect.left);
+        const score = (exactMatch ? 100 : 20)
+          + (candidate.matches('[role="combobox"], select, [aria-haspopup="listbox"]') ? 20 : 0)
+          - distance / 100;
+
+        if (!best || score > best.score) {
+          best = { candidate, score };
+        }
+      }
+
+      const isBelowTitle = rect.top >= titleAnchorRect.bottom - 8;
+      const isNearTitle = rect.top <= titleAnchorRect.bottom + 320;
+      const isInTitleColumn = rect.left < titleAnchorRect.right;
+      if (
+        (!candidate.matches('button') || exactMatch || partialMatch)
+        && isBelowTitle
+        && isNearTitle
+        && isInTitleColumn
+      ) {
+        const nearbyScore = (candidate.matches('[aria-haspopup="listbox"]') ? 20 : 0)
+          - Math.abs(rect.top - titleAnchorRect.bottom) / 100;
+        if (!nearby || nearbyScore > nearby.score) {
+          nearby = { candidate, score: nearbyScore };
+        }
+      }
+    }
+
+    const match = best || nearby;
+    return match ? getVersionControlRoot(match.candidate) : null;
+  }
+
+  function hideNativeVersionControl(control) {
+    if (!hiddenVersionControls.has(control)) {
+      hiddenVersionControls.set(control, {
+        style: control.getAttribute('style'),
+        hidden: control.hidden,
+      });
+    }
+
+    if (!control.hidden) {
+      control.hidden = true;
+    }
+
+    for (const [property, value] of [
+      ['display', 'none'],
+      ['visibility', 'hidden'],
+      ['pointer-events', 'none'],
+    ]) {
+      if (
+        control.style.getPropertyValue(property) !== value
+        || control.style.getPropertyPriority(property) !== 'important'
+      ) {
+        control.style.setProperty(property, value, 'important');
+      }
+    }
+  }
+
+  function restoreNativeVersionControls() {
+    for (const [control, original] of hiddenVersionControls.entries()) {
+      control.hidden = original.hidden;
+
+      if (original.style === null) {
+        control.removeAttribute('style');
+      } else {
+        control.setAttribute('style', original.style);
+      }
+    }
+
+    hiddenVersionControls.clear();
+  }
+
+  function cleanupModelDetailUi() {
+    if (cctSwitchOriginal !== undefined) {
+      syncCctVersionSwitch(cctSwitchOriginal);
+      cctSwitchOriginal = undefined;
+      window.CCT?.injectModelVersionDropdown?.();
+    }
+
+    stopDetailWatchdog();
+
+    for (const wrapper of document.querySelectorAll(`[${VERSION_CHIPS_ATTR}="true"]`)) {
+      wrapper.remove();
+    }
+    restoreNativeVersionControls();
+    detailUiState = null;
+  }
+
+  function restoreModelDetailUiFromState() {
+    const state = detailUiState;
+
+    if (
+      !state
+      || !versionChipsEnabled
+      || state.modelId !== getModelDetailId()
+      || !state.titleAnchor.isConnected
+    ) {
+      return false;
+    }
+
+    if (!state.nativeControl?.isConnected) {
+      const heading = getVisibleDetailHeading();
+      state.nativeControl = heading
+        ? findNativeVersionControl(state.model, heading)
+        : null;
+    }
+
+    if (state.nativeControl) {
+      hideNativeVersionControl(state.nativeControl);
+    }
+
+    enableNativeVersionChipsForCct();
+
+    if (
+      !state.wrapper.isConnected
+      || state.wrapper.previousElementSibling !== state.titleAnchor
+    ) {
+      state.wrapper = ensureVersionChipsWrapper(state.titleAnchor);
+    }
+
+    renderVersionChips(state.wrapper, state.model);
+    return true;
+  }
+
+  function startDetailWatchdog() {
+    if (detailWatchdog) {
+      return;
+    }
+
+    detailWatchdog = window.setInterval(() => {
+      if (!versionChipsEnabled || !isModelDetailPage()) {
+        return;
+      }
+
+      if (!restoreModelDetailUiFromState()) {
+        scheduleSync();
+      }
+    }, 150);
+  }
+
+  function startPageWatchdog() {
+    if (pageWatchdog) {
+      return;
+    }
+
+    pageWatchdog = window.setInterval(() => {
+      const modelsPage = isModelsPage();
+      const detailPage = isModelDetailPage();
+
+      if (!modelsPage && !detailPage) {
+        return;
+      }
+
+      if (detailPage) {
+        if (!detailUiState) {
+          scheduleSync();
+        } else {
+          restoreModelDetailUiFromState();
+        }
+      } else if (modelsPage) {
+        const wrapper = document.querySelector(`[${WRAPPER_ATTR}="true"]`);
+        if (!wrapper?.isConnected) {
+          scheduleSync();
+        }
+      }
+    }, 250);
+  }
+
+  function stopPageWatchdog() {
+    if (!pageWatchdog) {
+      return;
+    }
+
+    window.clearInterval(pageWatchdog);
+    pageWatchdog = null;
+  }
+
+  function stopDetailWatchdog() {
+    if (!detailWatchdog) {
+      return;
+    }
+
+    window.clearInterval(detailWatchdog);
+    detailWatchdog = null;
+  }
+
+  function ensureVersionChipsWrapper(titleAnchor) {
+    let wrapper = document.querySelector(`[${VERSION_CHIPS_ATTR}="true"]`);
+
+    if (!wrapper) {
+      wrapper = document.createElement('div');
+      wrapper.setAttribute(VERSION_CHIPS_ATTR, 'true');
+      wrapper.setAttribute('role', 'group');
+      wrapper.setAttribute('aria-label', '模型版本');
+    }
+
+    if (!wrapper.isConnected || wrapper.previousElementSibling !== titleAnchor) {
+      titleAnchor.insertAdjacentElement('afterend', wrapper);
+    }
+
+    return wrapper;
+  }
+
+  function renderVersionChips(wrapper, model) {
+    const versions = Array.isArray(model?.modelVersions) ? model.modelVersions : [];
+    const currentVersion = getCurrentModelVersion(model);
+    const renderKey = versions
+      .map((version) => `${version.id}\u0001${version.name}\u0001${version.baseModel}`)
+      .join('\u0002');
+
+    if (wrapper.getAttribute(OPTIONS_ATTR) === renderKey && wrapper.hasChildNodes()) {
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+
+    for (const version of versions) {
+      const button = document.createElement('button');
+      const active = String(version.id) === String(currentVersion?.id);
+
+      button.type = 'button';
+      button.className = 'tm-version-chip';
+      button.setAttribute(VERSION_CHIP_ATTR, 'true');
+      button.dataset.active = String(active);
+      button.textContent = normalizeText(version.name);
+      button.setAttribute(
+        'aria-label',
+        `${active ? '当前版本' : '切换到此版本'}：${version.name}，基础模型：${version.baseModel || '未知'}`
+      );
+
+      if (active) {
+        button.setAttribute('aria-current', 'page');
+      }
+
+      button.addEventListener('click', () => {
+        if (active) {
+          return;
+        }
+
+        const url = new URL(window.location.href);
+        url.searchParams.set('modelVersionId', String(version.id));
+        window.location.assign(url.toString());
+      });
+
+      fragment.appendChild(button);
+    }
+
+    wrapper.replaceChildren(fragment);
+    wrapper.setAttribute(OPTIONS_ATTR, renderKey);
+  }
+
+  async function syncModelDetailPage() {
+    const requestToken = ++detailRequestToken;
+    const modelId = getModelDetailId();
+
+    if (!versionChipsEnabled || !modelId) {
+      cleanupModelDetailUi();
+      return;
+    }
+
+    const heading = getVisibleDetailHeading();
+    if (!heading) {
+      return;
+    }
+
+    try {
+      const model = await getModelDetailData(modelId);
+      if (
+        requestToken !== detailRequestToken
+        || modelId !== getModelDetailId()
+        || !versionChipsEnabled
+      ) {
+        return;
+      }
+
+      const versions = Array.isArray(model?.modelVersions) ? model.modelVersions : [];
+      if (!versions.length) {
+        cleanupModelDetailUi();
+        return;
+      }
+
+      const titleAnchor = getModelDetailTitleAnchor(heading);
+      if (!titleAnchor) {
+        return;
+      }
+
+      if (
+        detailUiState
+        && detailUiState.modelId === modelId
+        && detailUiState.wrapper.isConnected
+        && detailUiState.wrapper.previousElementSibling === detailUiState.titleAnchor
+        && detailUiState.titleAnchor.isConnected
+      ) {
+        detailUiState.model = model;
+        if (detailUiState.nativeControl?.isConnected) {
+          hideNativeVersionControl(detailUiState.nativeControl);
+        }
+        renderVersionChips(detailUiState.wrapper, model);
+        startDetailWatchdog();
+        return;
+      }
+
+      const nativeControl = findNativeVersionControl(model, heading);
+      if (nativeControl) {
+        hideNativeVersionControl(nativeControl);
+      }
+
+      enableNativeVersionChipsForCct();
+
+      const wrapper = ensureVersionChipsWrapper(titleAnchor);
+      detailUiState = { modelId, wrapper, nativeControl, titleAnchor, model };
+      renderVersionChips(wrapper, model);
+      startDetailWatchdog();
+    } catch {
+      // Keep the last working UI during transient API or hydration failures.
+    }
+  }
+
   function scheduleSync() {
     if (syncQueued) {
       return;
@@ -600,11 +1160,13 @@
       }
 
       syncAllSections();
+      syncModelDetailPage();
     });
   }
 
   function isModelsPage() {
-    return MODELS_PATH_PATTERN.test(window.location.pathname);
+    return MODELS_PATH_PATTERN.test(window.location.pathname)
+      && !MODEL_DETAIL_PATH_PATTERN.test(window.location.pathname);
   }
 
   function getBaseModelSections() {
@@ -1414,16 +1976,16 @@
     }
   }
 
-  function startModelsPageObserver() {
-    if (modelsPageObserver || !document.body) {
+  function startPageObserver() {
+    if (pageObserver || !document.body) {
       return;
     }
 
-    modelsPageObserver = new MutationObserver(() => {
+    pageObserver = new MutationObserver(() => {
       scheduleSync();
     });
 
-    modelsPageObserver.observe(document.body, {
+    pageObserver.observe(document.body, {
       childList: true,
       subtree: true,
       attributes: true,
@@ -1431,24 +1993,34 @@
     });
   }
 
-  function stopModelsPageObserver() {
-    if (!modelsPageObserver) {
+  function stopPageObserver() {
+    if (!pageObserver) {
       return;
     }
 
-    modelsPageObserver.disconnect();
-    modelsPageObserver = null;
+    pageObserver.disconnect();
+    pageObserver = null;
   }
 
-  function refreshModelsPageLifecycle() {
-    if (isModelsPage()) {
-      ensureStyles();
-      startModelsPageObserver();
-      scheduleSync();
+  function refreshPageLifecycle() {
+    const modelsPage = isModelsPage();
+    const modelDetailPage = isModelDetailPage();
+
+    if (!modelsPage && !modelDetailPage) {
+      stopPageObserver();
+      stopPageWatchdog();
+      cleanupModelDetailUi();
       return;
     }
 
-    stopModelsPageObserver();
+    ensureStyles();
+    startPageObserver();
+    startPageWatchdog();
+    scheduleSync();
+
+    if (!modelDetailPage) {
+      cleanupModelDetailUi();
+    }
   }
 
   function installHistoryHooks() {
@@ -1462,7 +2034,7 @@
 
       const wrapped = function (...args) {
         const result = original.apply(this, args);
-        refreshModelsPageLifecycle();
+        refreshPageLifecycle();
         return result;
       };
 
@@ -1472,10 +2044,11 @@
   }
 
   function start() {
+    registerVersionChipMenu();
     installHistoryHooks();
-    refreshModelsPageLifecycle();
-    window.addEventListener('popstate', refreshModelsPageLifecycle);
-    window.addEventListener('hashchange', refreshModelsPageLifecycle);
+    refreshPageLifecycle();
+    window.addEventListener('popstate', refreshPageLifecycle);
+    window.addEventListener('hashchange', refreshPageLifecycle);
   }
 
   if (document.readyState === 'loading') {
