@@ -3,6 +3,7 @@
 把 Civitai 的「基础模型」下拉框换成分组折叠的胶囊筛选，79 个基础模型收进 8 个分类，组内新模型在左。
 
 ![预览](./preview.png)
+还原老版本模型选择<img width="1220" height="203" alt="QQ20261019-182134" src="https://github.com/user-attachments/assets/e9bf46f1-9561-46d6-81dd-2bc4ecd79beb" />
 
 ## 来源
 
